@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import URL
+from app.rate_limit import limiter
 from app.schemas.url import ShortenRequest, ShortenResponse
 from app.short_code import generate_short_code
 
@@ -16,7 +17,8 @@ _MAX_GENERATION_ATTEMPTS = 5
 
 
 @router.post("/shorten", response_model=ShortenResponse, status_code=status.HTTP_201_CREATED)
-def shorten(payload: ShortenRequest, db: Session = Depends(get_db)) -> ShortenResponse:
+@limiter.limit("10/minute")
+def shorten(request: Request, payload: ShortenRequest, db: Session = Depends(get_db)) -> ShortenResponse:
     long_url = str(payload.long_url)
 
     for _ in range(_MAX_GENERATION_ATTEMPTS):
@@ -46,7 +48,8 @@ def shorten(payload: ShortenRequest, db: Session = Depends(get_db)) -> ShortenRe
 
 
 @router.get("/{code}")
-def redirect_to_long_url(code: str, db: Session = Depends(get_db)) -> RedirectResponse:
+@limiter.limit("60/minute")
+def redirect_to_long_url(request: Request, code: str, db: Session = Depends(get_db)) -> RedirectResponse:
     stmt = (
         update(URL)
         .where(URL.short_code == code)
