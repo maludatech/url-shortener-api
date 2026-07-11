@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -41,3 +43,21 @@ def shorten(payload: ShortenRequest, db: Session = Depends(get_db)) -> ShortenRe
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Could not generate a unique short code, please try again",
     )
+
+
+@router.get("/{code}")
+def redirect_to_long_url(code: str, db: Session = Depends(get_db)) -> RedirectResponse:
+    stmt = (
+        update(URL)
+        .where(URL.short_code == code)
+        .values(click_count=URL.click_count + 1)
+        .returning(URL.long_url)
+    )
+    row = db.execute(stmt).first()
+
+    if row is None:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Short URL not found")
+
+    db.commit()
+    return RedirectResponse(url=row.long_url, status_code=status.HTTP_302_FOUND)
